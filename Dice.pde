@@ -135,6 +135,20 @@ class Matrix3d {
     elements = new double[3][3];
     arrayCopy(i_elements, elements);
   }
+  
+    Matrix3d(
+    double a00, double a01, double a02,
+    double a10, double a11, double a12,
+    double a20, double a21, double a22
+  ) {
+    double[][] i_elements = {
+      {a00, a01, a02},
+      {a10, a11, a12},
+      {a20, a21, a22}
+    };
+    elements = new double[3][3];
+    arrayCopy(i_elements, elements);
+  }
 }
 
 Vector3d multiply_matrix(Matrix3d mat, Vector3d v) {
@@ -161,6 +175,20 @@ Matrix3d get_rotation_matrix(Vector3d angles) {
     { -sy, cy * sx, cy * cx }
   };
   return new Matrix3d(elements);
+}
+
+class AffineTransform {
+  public Matrix3d linear;
+  public Vector3d translate;
+
+  AffineTransform(Matrix3d i_linear, Vector3d i_translate) {
+    linear = i_linear;
+    translate = i_translate;
+  }
+}
+
+Vector3d do_affine(AffineTransform affine, Vector3d v) {
+  return multiply_matrix(affine.linear, v).plus(affine.translate);
 }
 
 class CubePosition {
@@ -293,7 +321,119 @@ class CubeMotionState {
   }
 }
 
-class Cube /* extends Shape */ {
+Vector3d[] get_unit_circle_lines() {
+  final int num_vertices = 20;
+
+  Vector3d[] vertices = new Vector3d[num_vertices];
+  for (int i = 0; i < num_vertices; ++i) {
+    double angle = 2*PI * i/num_vertices;
+    vertices[i] = new Vector3d(Math.cos(angle), Math.sin(angle), 0);
+  }
+
+  Vector3d[] lines_vertices = new Vector3d[num_vertices * 2];
+  for (int i = 0; i < num_vertices; ++i) {
+    lines_vertices[2*i] = vertices[i];
+    lines_vertices[2*i+1] = vertices[(i+1) % num_vertices];
+  }
+  
+  return lines_vertices;
+}
+
+Vector3d[] get_dice_quads() {
+  Vector3d vertices[] = {
+    new Vector3d(-1, -1, -1), // 0
+    new Vector3d(-1, -1,  1), // 1
+    new Vector3d(-1,  1, -1), // 2
+    new Vector3d(-1,  1,  1), // 3
+    new Vector3d( 1, -1, -1), // 4
+    new Vector3d( 1, -1,  1), // 5
+    new Vector3d( 1,  1, -1), // 6
+    new Vector3d( 1,  1,  1)  // 7
+  };
+
+  int faces[][] = {
+    {0, 1, 3, 2},
+    {0, 1, 5, 4},
+    {0, 2, 6, 4},
+    {7, 6, 4, 5},
+    {7, 6, 2, 3},
+    {7, 5, 1, 3}
+  };
+
+  Vector3d[] out = new Vector3d[4 * faces.length];
+
+  for (int i = 0; i < faces.length; ++i) {
+    for (int j = 0; j < 4; ++j) {
+      out[4*i + j] = vertices[faces[i][j]];
+    }
+  }
+
+  return out;
+}
+
+Vector3d[] get_dice_lines() {
+  final Vector3d[] unit_circle_lines = get_unit_circle_lines();
+
+  final double circle_size = 1.0 / 5;
+  final double circle_gap = 1.0 / 2;
+  
+  final Vector2d circle_centers[][] = {
+    {},
+    {new Vector2d(0, 0)},
+    {new Vector2d(-1, -1), new Vector2d(1, 1)},
+    {new Vector2d(-1, -1), new Vector2d(0, 0), new Vector2d(1, 1)},
+    {new Vector2d(-1, -1), new Vector2d(-1, 1), new Vector2d(1, 1),
+      new Vector2d(1, -1)},
+    {new Vector2d(-1, -1), new Vector2d(-1, 1), new Vector2d(1, 1),
+      new Vector2d(1, -1), new Vector2d(0, 0)},
+    {new Vector2d(-1, -1), new Vector2d(-1, 0), new Vector2d(-1, 1),
+      new Vector2d(1, -1), new Vector2d(1, 0), new Vector2d(1, 1)}
+  };
+
+  final AffineTransform affine_transforms[] = {
+    new AffineTransform(new Matrix3d(0, 0, 0, 0, 0, 0, 0, 0, 0), new Vector3d(0, 0, 0)), // 0
+    new AffineTransform(get_rotation_matrix(new Vector3d(0, 0, 0)), new Vector3d(0, 0, 1)), // 1
+    new AffineTransform(get_rotation_matrix(new Vector3d(0, PI/2, 0)), new Vector3d(-1, 0, 0)), // 2
+    new AffineTransform(get_rotation_matrix(new Vector3d(PI/2, 0, 0)), new Vector3d(0, 1, 0)), // 3
+    new AffineTransform(get_rotation_matrix(new Vector3d(-PI/2, 0, 0)), new Vector3d(0, -1, 0)), // 4
+    new AffineTransform(get_rotation_matrix(new Vector3d(0, -PI/2, 0)), new Vector3d(1, 0, 0)), // 5
+    new AffineTransform(get_rotation_matrix(new Vector3d(0, 0, 0)), new Vector3d(0, 0, -1)), // 6
+  };
+
+  ArrayList<Vector3d> lines = new ArrayList<Vector3d>();
+
+  for (int s = 1; s <= 6; ++s) {
+    Vector2d[] centers = circle_centers[s];
+    AffineTransform affine = affine_transforms[s];
+    for (int ci = 0; ci < centers.length; ++ci) {
+      Vector2d center = centers[ci];
+      Vector3d center_diff = new Vector3d(
+        center.x * circle_gap,
+        center.y * circle_gap,
+        0
+      );
+      for (int vi = 0; vi < unit_circle_lines.length; ++vi) {
+        Vector3d vertex = unit_circle_lines[vi];
+        vertex = vertex.multiply(circle_size);
+        vertex = vertex.plus(center_diff);
+        vertex = do_affine(affine, vertex);
+        lines.add(vertex);
+      }
+    }
+  }
+
+  Vector3d[] lines_array = new Vector3d[lines.size()];
+  for (int i = 0; i < lines.size(); ++i) {
+    lines_array[i] = lines.get(i);
+  }
+  
+  return lines_array;
+}
+
+final Vector3d[] dice_quads = get_dice_quads();
+final Vector3d[] dice_lines = get_dice_lines();
+
+class Cube {
   private double side_length;
   private CubePosition base_position;
   private CubePath path;
@@ -363,33 +503,6 @@ class Cube /* extends Shape */ {
     return interpolate_CubePosition(before, after, progress);
   }
   
-  private void draw_face(int side_num) {
-    final double circle_size = 1.0 / 5;
-    final double circle_gap = 1.0 / 2;
-    final Vector2d circle_centers[][] = {
-      {},
-      {new Vector2d(0, 0)},
-      {new Vector2d(-1, -1), new Vector2d(1, 1)},
-      {new Vector2d(-1, -1), new Vector2d(0, 0), new Vector2d(1, 1)},
-      {new Vector2d(-1, -1), new Vector2d(-1, 1), new Vector2d(1, 1),
-        new Vector2d(1, -1)},
-      {new Vector2d(-1, -1), new Vector2d(-1, 1), new Vector2d(1, 1),
-        new Vector2d(1, -1), new Vector2d(0, 0)},
-      {new Vector2d(-1, -1), new Vector2d(-1, 0), new Vector2d(-1, 1),
-        new Vector2d(1, -1), new Vector2d(1, 0), new Vector2d(1, 1)}
-    };
-    rect(-1, -1, 1, 1);
-    for (int i = 0; i < side_num; ++i) {
-      Vector2d circle_center = circle_centers[side_num][i];
-      ellipse(
-        (float)(circle_gap * circle_center.x),
-        (float)(circle_gap * circle_center.y),
-        (float)circle_size,
-        (float)circle_size
-      );
-    }
-  }
-  
   void show() { 
     CubePosition position = get_current_position();
     
@@ -407,48 +520,20 @@ class Cube /* extends Shape */ {
     fill(color(0xff, 0xff, 0xff));
     stroke(color(0x00, 0x00, 0x00));
     strokeWeight(0.1);
-    rectMode(CORNERS);
-    ellipseMode(RADIUS);
-    
-    // close face (1)
-    pushMatrix();
-    translate(0, 0, 1);
-    draw_face(1);
-    popMatrix();
-    
-    // far face (6)
-    pushMatrix();
-    translate(0, 0, -1);
-    draw_face(6);
-    popMatrix();
-    
-    // left face (2)
-    pushMatrix();
-    translate(-1, 0, 0);
-    rotateY(PI/2);
-    draw_face(2);
-    popMatrix();
-    
-    // right face (5)
-    pushMatrix();
-    translate(1, 0, 0);
-    rotateY(-PI/2);
-    draw_face(5);
-    popMatrix();
-    
-    // top face (3)
-    pushMatrix();
-    translate(0, 1, 0);
-    rotateX(PI/2);
-    draw_face(3);
-    popMatrix();
-    
-    // bottom face (4)
-    pushMatrix();
-    translate(0, -1, 0);
-    rotateX(-PI/2);
-    draw_face(4);
-    popMatrix();
+
+    beginShape(QUADS);
+    for (int i = 0; i < dice_quads.length; ++i) {
+      Vector3d v = dice_quads[i];
+      vertex((float)v.x, (float)v.y, (float)v.z);
+    }
+    endShape();
+
+    beginShape(LINES);
+    for (int i = 0; i < dice_lines.length; ++i) {
+      Vector3d v = dice_lines[i];
+      vertex((float)v.x, (float)v.y, (float)v.z);
+    }
+    endShape();
     
     popMatrix();
   }
