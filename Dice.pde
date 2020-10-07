@@ -223,11 +223,15 @@ class CubePath {
     times.add(time);
   }
   
+  double get_total_time() {
+    return times.get(times.size() - 1);
+  }
+  
   void invert() {
     if (positions.size() == 0) {
       return;
     }
-    double latest_time = times.get(times.size() - 1);
+    double latest_time = get_total_time();
     for (int i = 0; i < positions.size() / 2; ++i) {
       int j = positions.size() - i - 1;
       CubePosition temp1 = positions.get(i);
@@ -295,6 +299,7 @@ class Cube /* extends Shape */ {
   private CubePath path;
   private double current_time;
   private int last_path_index;
+  private int roll_num;
 
   Cube(double i_side_length, Vector3d i_base_center) {
     side_length = i_side_length;
@@ -305,6 +310,7 @@ class Cube /* extends Shape */ {
     path = get_static_path(base_position);
     current_time = 0;
     last_path_index = 0;
+    roll_num = 1;
   }
   
   void reset() {
@@ -335,6 +341,10 @@ class Cube /* extends Shape */ {
   
   void set_path(CubePath new_path) {
     path = new_path;
+  }
+  
+  int get_roll_num() {
+    return roll_num;
   }
   
   CubePosition get_current_position() {
@@ -426,14 +436,14 @@ class Cube /* extends Shape */ {
     draw_face(5);
     popMatrix();
     
-    // top face
+    // top face (3)
     pushMatrix();
     translate(0, 1, 0);
     rotateX(PI/2);
     draw_face(3);
     popMatrix();
     
-    // bottom face
+    // bottom face (4)
     pushMatrix();
     translate(0, -1, 0);
     rotateX(-PI/2);
@@ -444,17 +454,50 @@ class Cube /* extends Shape */ {
   }
   
   void roll() {
-    base_position.ang_displacement.x = (PI / 2) * rand_int(0, 4);
-    base_position.ang_displacement.y = (PI / 2) * rand_int(0, 4);
+    roll_num = rand_int(1, 7);
+    int x_displ_mult = 0;
+    int y_displ_mult = 0;
+    switch (roll_num) {
+      case 1:
+        x_displ_mult = 0;
+        y_displ_mult = 0;
+        break;
+      case 2:
+        x_displ_mult = 0;
+        y_displ_mult = 1;
+        break;
+      case 3:
+        x_displ_mult = 1;
+        y_displ_mult = 0;
+        break;
+      case 4:
+        x_displ_mult = -1;
+        y_displ_mult = 0;
+        break;
+      case 5:
+        x_displ_mult = 0;
+        y_displ_mult = -1;
+        break;
+      case 6:
+        x_displ_mult = 2;
+        y_displ_mult = 0;
+        break;
+    }
+    base_position.ang_displacement.x = (PI / 2) * x_displ_mult;
+    base_position.ang_displacement.y = (PI / 2) * y_displ_mult;
     base_position.ang_displacement.z = rand_uniform(0, 2 * PI);
   }
 }
 
 Cube cubes[] = new Cube[3 * 3];
-static final double cube_side_length = 60;
-static final double cube_gap = 150;
-static final double margin = 90;
-static final double dice_display_width = 540;
+String bottom_label_text;
+
+final double cube_side_length = 60;
+final double cube_gap = 150;
+final double margin = 90;
+final double dice_display_width = 540;
+final double bottom_label_height = 60;
+final double total_height = 600;
 
 void init_cubes() {
   for (int r = 0; r < 3; ++r) {
@@ -472,6 +515,10 @@ void init_cubes() {
   }
 }
 
+void init_bottom_label() {
+  bottom_label_text = "Sum of all rolls: 9";
+}
+
 final double BUFFER = 0.001;
 final double gravity = 0.001;
 final double friction = 0.005;
@@ -485,7 +532,7 @@ final UniformRandomGenerator gen_upward_velocity
 final UniformRandomGenerator gen_ang_vel_comp
   = new UniformRandomGenerator(0, PI / 1000);
 
-void plan_cube_paths() {
+double plan_cube_paths() {
   CubeMotionState motion_state_array[] = new CubeMotionState[cubes.length];
   CubePath path_array[] = new CubePath[cubes.length];
   
@@ -615,10 +662,18 @@ void plan_cube_paths() {
     time_elapsed += time_delta;
   }
   
+  double longest_time = 0;
+  
   for (int i = 0; i < cubes.length; ++i) {
+    if (path_array[i].get_total_time() > longest_time) {
+      longest_time = path_array[i].get_total_time();
+    }
+    
     path_array[i].invert();
     cubes[i].set_path(path_array[i]);
   }
+  
+  return longest_time;
 }
 
 void reset_cubes() {
@@ -633,22 +688,45 @@ void roll_cubes() {
   }
 }
 
+void change_bottom_label_text() {
+  int roll_sum = 0;
+  for (int i = 0; i < cubes.length; ++i) {
+    roll_sum += cubes[i].get_roll_num();
+  }
+  bottom_label_text = "Sum of all rolls: " + roll_sum;
+}
+
 void show_cubes() {
   for (int i = 0; i < cubes.length; ++i) {
     cubes[i].show();
   }
 }
 
+void show_bottom_label() {
+  rectMode(CORNER);
+  fill(color(0x00, 0x00, 0x00));
+  textSize(12);
+  textAlign(CENTER);
+  text(
+    bottom_label_text,
+    0, (int)dice_display_width,
+    (float)dice_display_width, (float)bottom_label_height
+  );
+}
+
 int last_draw_time;
 boolean suspend_draw;
 boolean in_draw;
+double time_until_label_show;
 
 void setup() {
-  size(540, 540, P3D);
+  size(540, 600, P3D);
   init_cubes();
+  init_bottom_label();
   last_draw_time = 0;
   suspend_draw = false;
   in_draw = false;
+  time_until_label_show = 0;
 }
 
 void draw() {
@@ -659,10 +737,16 @@ void draw() {
   in_draw = true;
   background(color(0xff, 0xff, 0xff));
   show_cubes();
+  if (time_until_label_show <= 0) {
+    show_bottom_label();
+  }
   
   int current_time = millis();
   for (int i = 0; i < cubes.length; ++i) {
     cubes[i].add_time(current_time - last_draw_time);
+  }
+  if (time_until_label_show > 0) {
+    time_until_label_show -= current_time - last_draw_time;
   }
   
   last_draw_time = current_time;
@@ -673,7 +757,8 @@ void mousePressed() {
   suspend_draw = true;
   while (in_draw) {}
   roll_cubes();
+  change_bottom_label_text();
   reset_cubes();
-  plan_cube_paths();
+  time_until_label_show = plan_cube_paths();
   suspend_draw = false;
 }
