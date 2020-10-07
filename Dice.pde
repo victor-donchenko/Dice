@@ -446,7 +446,7 @@ class Cube /* extends Shape */ {
   void roll() {
     base_position.ang_displacement.x = (PI / 2) * rand_int(0, 4);
     base_position.ang_displacement.y = (PI / 2) * rand_int(0, 4);
-    base_position.ang_displacement.z = (PI / 2) * rand_int(0, 4);
+    base_position.ang_displacement.z = rand_uniform(0, 2 * PI);
   }
 }
 
@@ -486,8 +486,6 @@ final UniformRandomGenerator gen_ang_vel_comp
   = new UniformRandomGenerator(0, PI / 1000);
 
 void plan_cube_paths() {
-  //System.out.println("plan_cube_paths()");
-  
   CubeMotionState motion_state_array[] = new CubeMotionState[cubes.length];
   CubePath path_array[] = new CubePath[cubes.length];
   
@@ -510,8 +508,6 @@ void plan_cube_paths() {
       0
     );
   }
-  
-  //System.out.println("finished creating paths and motion states");
   
   final double time_delta = 10;
   double time_elapsed = 0;
@@ -594,12 +590,7 @@ void plan_cube_paths() {
           }
         }
         
-        //System.out.println(minimum_z);
-        
         minimum_z *= side_length / 2;
-        
-        //System.out.println(minimum_z);
-        //System.out.println(position.center.z);
         
         if (position.center.z + minimum_z + BUFFER < 0) {
           position.center.z = -minimum_z;
@@ -624,14 +615,10 @@ void plan_cube_paths() {
     time_elapsed += time_delta;
   }
   
-  //System.out.println("finished calculating paths");
-  
   for (int i = 0; i < cubes.length; ++i) {
     path_array[i].invert();
     cubes[i].set_path(path_array[i]);
   }
-  
-  //System.out.println("finished assigning paths");
 }
 
 void reset_cubes() {
@@ -688,6 +675,5 @@ void mousePressed() {
   roll_cubes();
   reset_cubes();
   plan_cube_paths();
-  //System.out.println(cubes[0].get_path());
   suspend_draw = false;
 }
