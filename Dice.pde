@@ -718,6 +718,8 @@ int last_draw_time;
 boolean suspend_draw;
 boolean in_draw;
 double time_until_label_show;
+int view;
+final int num_views = 3;
 
 void setup() {
   size(540, 600, P3D);
@@ -727,6 +729,40 @@ void setup() {
   suspend_draw = false;
   in_draw = false;
   time_until_label_show = 0;
+  view = 1;
+}
+
+void view_change() {
+  switch (view) {
+    case 0:
+      break;
+    case 1:
+      translate(0, 0, -280);
+      rotateX(PI / 6);
+      
+      fill(color(0x80, 0x80, 0x80));
+      rectMode(CORNERS);
+      rect(
+        0,
+        0,
+        540,
+        540
+      );
+      break;
+    case 2:
+      stroke(color(0x80, 0x80, 0x80));
+      strokeWeight(2);
+      line(
+        0,
+        300,
+        540,
+        300
+      );
+      
+      translate(0, 300, -300);
+      rotateX(PI / 2);
+      break;
+  }
 }
 
 void draw() {
@@ -735,8 +771,14 @@ void draw() {
   }
   
   in_draw = true;
+  
   background(color(0xff, 0xff, 0xff));
+  
+  pushMatrix();
+  view_change();
   show_cubes();
+  popMatrix();
+  
   if (time_until_label_show <= 0) {
     show_bottom_label();
   }
@@ -756,9 +798,17 @@ void draw() {
 void mousePressed() {
   suspend_draw = true;
   while (in_draw) {}
-  roll_cubes();
-  change_bottom_label_text();
-  reset_cubes();
-  time_until_label_show = plan_cube_paths();
+  
+  if (mouseY > dice_display_width) {
+    ++view;
+    view %= num_views;
+  }
+  else {
+    roll_cubes();
+    change_bottom_label_text();
+    reset_cubes();
+    time_until_label_show = plan_cube_paths();
+  }
+  
   suspend_draw = false;
 }
