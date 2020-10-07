@@ -1,4 +1,4 @@
-double interpolate(
+double interpolate_double(
   double before,
   double after,
   double progress
@@ -116,15 +116,15 @@ class Vector3d {
   }
 }
 
-Vector3d interpolate(
+Vector3d interpolate_Vector3d(
   Vector3d before,
   Vector3d after,
   double progress
 ) {
   return new Vector3d(
-    interpolate(before.x, after.x, progress),
-    interpolate(before.y, after.y, progress),
-    interpolate(before.z, after.z, progress)
+    interpolate_double(before.x, after.x, progress),
+    interpolate_double(before.y, after.y, progress),
+    interpolate_double(before.z, after.z, progress)
   );
 }
 
@@ -190,18 +190,18 @@ class CubePosition {
   }
 }
 
-CubePosition interpolate(
+CubePosition interpolate_CubePosition(
   CubePosition before,
   CubePosition after,
   double progress
 ) {
   return new CubePosition(
-    interpolate(
+    interpolate_Vector3d(
       before.center,
       after.center,
       progress
     ),
-    interpolate(
+    interpolate_Vector3d(
       before.ang_displacement,
       after.ang_displacement,
       progress
@@ -350,7 +350,7 @@ class Cube /* extends Shape */ {
     double before_time = path.times.get(last_path_index);
     double after_time = path.times.get(last_path_index + 1);
     double progress = (current_time - before_time) / (after_time - before_time);
-    return interpolate(before, after, progress);
+    return interpolate_CubePosition(before, after, progress);
   }
   
   private void draw_face(int side_num) {
