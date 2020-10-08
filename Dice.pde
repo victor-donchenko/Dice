@@ -792,13 +792,13 @@ class Planner {
       position2.ang_displacement.minus(position1.ang_displacement)
     );
     
-    Vector3d vertices[] = new Vector3d[8];
+    Vector3d vertices[] = new Vector3d[64];
       
     int j = 0;
-    for (int x = -1; x <= 1; x += 2) {
-      for (int y = -1; y <= 1; y += 2) {
-        for (int z = -1; z <= 1; z += 2) {
-          vertices[j] = (new Vector3d(x, y, z)).multiply(side_length1 / 2);
+    for (double x = -1; x <= 1 + BUFFER; x += 2.0/3) {
+      for (double y = -1; y <= 1 + BUFFER; y += 2.0/3) {
+        for (double z = -1; z <= 1 + BUFFER; z += 2.0/3) {
+          vertices[j] = (new Vector3d(x, y, z)).multiply(side_length2 / 2);
           ++j;
         }
       }
@@ -806,17 +806,22 @@ class Planner {
     
     AffineTransform affine = new AffineTransform(
       get_rotation_matrix(position_diff.ang_displacement),
-      position_diff.center
+      multiply_matrix(
+        get_rotation_matrix(
+          position1.ang_displacement.multiply(-1)
+        ),
+        position_diff.center
+      )
     );
     
-    for (j = 0; j < 8; ++j) {
+    for (j = 0; j < vertices.length; ++j) {
       vertices[j] = do_affine(affine, vertices[j]);
     }
     
     boolean has_been_collision = false;
-    for (j = 0; j < 8; ++j) {
+    for (j = 0; j < vertices.length; ++j) {
       Vector3d v = vertices[j];
-      double cube2_offset = side_length2 / 2;
+      double cube2_offset = side_length2 / 1;
       if (Math.abs(v.x) + BUFFER < cube2_offset
           && Math.abs(v.y) + BUFFER < cube2_offset
           && Math.abs(v.z) + BUFFER < cube2_offset) {
@@ -826,7 +831,9 @@ class Planner {
     }
     
     if (has_been_collision) {
-      elastic_rebound(i1, i2);
+      if (!prev_collisions.containsKey(cube_array.length * i1 + i2)) {
+        elastic_rebound(i1, i2);
+      }
       return true;
     }
     else {
@@ -844,9 +851,6 @@ class Planner {
 
       int i1 = i;
       for (int i2 = i + 1; i2 < cube_array.length; ++i2) {
-        if (prev_collisions.containsKey(cube_array.length * i1 + i2)) {
-          continue;
-        }
         if (precheck_collision_of_cubes(i1, i2)) {
           boolean collision_happened = false;
           if (check_and_handle_collision_to_cube(i1, i2)) {
@@ -907,7 +911,7 @@ class Planner {
       path_array[i].invert();
       cube_array[i].set_path(path_array[i]);
     }
-    
+        
     return longest_time;
   }
 }
