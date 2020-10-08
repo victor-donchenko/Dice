@@ -167,6 +167,59 @@ Vector3d multiply_matrix(Matrix3d mat, Vector3d v) {
   );
 }
 
+Matrix3d multiply_matrices(Matrix3d a, Matrix3d b) {
+  Vector3d[] out_columns = new Vector3d[3];
+  for (int c = 0; c < 3; ++c) {
+    out_columns[c] = multiply_matrix(
+      a,
+      new Vector3d(
+        b.elements[0][c],
+        b.elements[1][c],
+        b.elements[2][c]
+      )
+    );
+  }
+  
+  double[][] elements = new double[3][3];
+  for (int c = 0; c < 3; ++c) {
+    elements[0][c] = out_columns[c].x;
+    elements[1][c] = out_columns[c].y;
+    elements[2][c] = out_columns[c].z;
+  }
+  
+  return new Matrix3d(elements);
+}
+
+Matrix3d get_x_rotation_matrix(double theta) {
+  double ct = Math.cos(theta);
+  double st = Math.sin(theta);
+  return new Matrix3d(
+    1,  0,   0,
+    0, ct, -st,
+    0, st,  ct
+  );
+}
+
+Matrix3d get_y_rotation_matrix(double theta) {
+  double ct = Math.cos(theta);
+  double st = Math.sin(theta);
+  return new Matrix3d(
+     ct, 0, st,
+      0, 1,  0,
+    -st, 0, ct
+  );
+}
+
+Matrix3d get_z_rotation_matrix(double theta) {
+  double ct = Math.cos(theta);
+  double st = Math.sin(theta);
+  return new Matrix3d(
+     ct, -st, 0,
+     st,  ct, 0,
+      0,   0, 1
+  );
+}
+
 Matrix3d get_rotation_matrix(Vector3d angles) {
   double x = angles.x;
   double y = angles.y;
@@ -183,6 +236,16 @@ Matrix3d get_rotation_matrix(Vector3d angles) {
     { -sy, cy * sx, cy * cx }
   };
   return new Matrix3d(elements);
+}
+
+Matrix3d get_inverted_rotation_matrix(Vector3d angles) {
+  return multiply_matrices(
+    get_x_rotation_matrix(-angles.x),
+    multiply_matrices(
+      get_y_rotation_matrix(-angles.y),
+      get_z_rotation_matrix(-angles.z)
+    )
+  );
 }
 
 class AffineTransform {
@@ -803,13 +866,16 @@ class Planner {
         }
       }
     }
+
+    Matrix3d inverse_matrix = get_inverted_rotation_matrix(position1.ang_displacement);
     
     AffineTransform affine = new AffineTransform(
-      get_rotation_matrix(position_diff.ang_displacement),
+      multiply_matrices(
+        inverse_matrix,
+        get_rotation_matrix(position2.ang_displacement)
+      ),
       multiply_matrix(
-        get_rotation_matrix(
-          position1.ang_displacement.multiply(-1)
-        ),
+        inverse_matrix,
         position_diff.center
       )
     );
@@ -821,7 +887,7 @@ class Planner {
     boolean has_been_collision = false;
     for (j = 0; j < vertices.length; ++j) {
       Vector3d v = vertices[j];
-      double cube2_offset = side_length2 / 1;
+      double cube2_offset = side_length1 / 2;
       if (Math.abs(v.x) + BUFFER < cube2_offset
           && Math.abs(v.y) + BUFFER < cube2_offset
           && Math.abs(v.z) + BUFFER < cube2_offset) {
@@ -911,7 +977,7 @@ class Planner {
       path_array[i].invert();
       cube_array[i].set_path(path_array[i]);
     }
-        
+    
     return longest_time;
   }
 }
@@ -994,6 +1060,8 @@ final int num_views = 3;
 
 void setup() {
   size(540, 600, P3D);
+  background(color(0xff, 0xff, 0xff));
+  
   init_cubes();
   init_bottom_label();
   last_draw_time = 0;
