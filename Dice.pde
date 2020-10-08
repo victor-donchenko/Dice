@@ -69,6 +69,14 @@ class Vector3d {
     z = other.z;
   }
   
+  double magnitude_sq() {
+    return x * x + y * y + z * z;
+  }
+  
+  double magnitude() {
+    return Math.sqrt(magnitude_sq());
+  }
+  
   Vector3d plus(Vector3d other) {
     return new Vector3d(
       x + other.x,
@@ -574,7 +582,338 @@ class Cube {
   }
 }
 
-Cube cubes[] = new Cube[3 * 3];
+class Planner {
+  private final double BUFFER = 0.001;
+  private final double gravity = 0.001;
+  private final double friction = 0.005;
+  private final double bounce_factor = 1.2;
+  private final UniformRandomGenerator gen_slide_time
+    = new UniformRandomGenerator(250, 500);
+  private final UniformRandomGenerator gen_vel_argument
+    = new UniformRandomGenerator(0, 2 * PI);
+  private final UniformRandomGenerator gen_upward_velocity
+    = new UniformRandomGenerator(0.2, 0.3);
+  private final UniformRandomGenerator gen_ang_vel_comp
+    = new UniformRandomGenerator(0, PI / 1000);
+  private final double time_delta = 10;
+
+  private Cube cube_array[];
+  private CubeMotionState motion_state_array[];
+  private CubePath path_array[];
+  private double time_elapsed;
+  private int num_finished;
+  private HashMap<Integer, Integer> prev_collisions;
+  
+  Planner(Cube[] i_cube_array) {
+    cube_array = i_cube_array;
+    motion_state_array = null;
+    path_array = null;
+    time_elapsed = 0;
+    num_finished = 0;
+    prev_collisions = null;
+  }
+  
+  void initialize() {
+    motion_state_array = new CubeMotionState[cube_array.length];
+    path_array = new CubePath[cube_array.length];
+    
+    for (int i = 0; i < cube_array.length; ++i) {
+      Cube cube = cube_array[i];
+      
+      path_array[i] = new CubePath();
+      path_array[i].add_waypoint(
+        new CubePosition(cube.get_base_position()),
+        0
+      );
+    
+      motion_state_array[i] = new CubeMotionState(
+        -1,
+        0,
+        new CubePosition(cube.get_base_position()),
+        new Vector3d(0, 0, 0),
+        new Vector3d(0, 0, 0),
+        0,
+        0
+      );
+    }
+  }
+  
+  void record_waypoints() {
+    for (int i = 0; i < cube_array.length; ++i) {
+      CubePosition position = new CubePosition(motion_state_array[i].position);
+      path_array[i].add_waypoint(
+        position,
+        time_elapsed
+      );
+    }
+  }
+  
+  void manage_stages() {
+    for (int i = 0; i < cube_array.length; ++i) {
+      motion_state_array[i].time_until_next_stage -= time_delta;
+      if (motion_state_array[i].time_until_next_stage <= 0) {
+        ++motion_state_array[i].stage;
+        switch (motion_state_array[i].stage) {
+          case 0:
+            motion_state_array[i].time_until_next_stage = gen_slide_time.get_random_number();
+            double vel_argument = gen_vel_argument.get_random_number();
+            motion_state_array[i].velocity = new Vector3d(0, 0, 0);
+            motion_state_array[i].ang_velocity = new Vector3d(0, 0, 0);
+            motion_state_array[i].extra_data1 = 0;
+            motion_state_array[i].extra_data2 = vel_argument;
+            break;
+          case 1:
+            motion_state_array[i].time_until_next_stage = 3000;
+            double upward_velocity = gen_upward_velocity.get_random_number();
+            motion_state_array[i].velocity.z = upward_velocity;
+            double ang_vel_x = gen_ang_vel_comp.get_random_number();
+            double ang_vel_y = gen_ang_vel_comp.get_random_number();
+            double ang_vel_z = gen_ang_vel_comp.get_random_number();
+            motion_state_array[i].ang_velocity = new Vector3d(
+              ang_vel_x,
+              ang_vel_y,
+              ang_vel_z
+            );
+            break;
+         case 2:
+            ++num_finished;
+            break;
+        }
+      }
+    }
+  }
+  
+  void move_positions() {
+    for (int i = 0; i < cube_array.length; ++i) {
+      motion_state_array[i].position.center.update_by(
+        motion_state_array[i].velocity.multiply(
+          time_delta
+        )
+      );
+      motion_state_array[i].position.ang_displacement.update_by(
+        motion_state_array[i].ang_velocity.multiply(
+          time_delta
+        )
+      );
+    }
+  }
+
+  boolean precheck_collision_with_ground(int i) {
+    CubePosition position = motion_state_array[i].position;
+    double side_length = cube_array[i].get_side_length();
+    return position.center.z + BUFFER <= side_length * (Math.sqrt(3) / 2);
+  }
+  
+  boolean check_and_handle_collision_with_ground(int i) {
+    CubePosition position = motion_state_array[i].position;
+    double side_length = cube_array[i].get_side_length();
+    
+    Vector3d vertices[] = new Vector3d[8];
+      
+    int j = 0;
+    for (int x = -1; x <= 1; x += 2) {
+      for (int y = -1; y <= 1; y += 2) {
+        for (int z = -1; z <= 1; z += 2) {
+          vertices[j] = new Vector3d(x, y, z);
+          ++j;
+        }
+      }
+    }
+          
+    double minimum_z = 2;
+    for (int k = 0; k < 8; ++k) {
+      vertices[k].apply_matrix(get_rotation_matrix(position.ang_displacement));
+      if (vertices[k].z < minimum_z) {
+        minimum_z = vertices[k].z;
+      }
+    }
+          
+    minimum_z *= side_length / 2;
+            
+    if (position.center.z + minimum_z + BUFFER < 0) {
+      position.center.z = -minimum_z;
+      if (motion_state_array[i].velocity.z < 0) {
+        motion_state_array[i].velocity.z *= -bounce_factor;
+      }
+      return true;
+    }
+    else {
+      return false;
+    }
+  }
+
+  boolean precheck_collision_of_cubes(int i1, int i2) {
+    Vector3d center1 = motion_state_array[i1].position.center;
+    Vector3d center2 = motion_state_array[i2].position.center;
+    double side_length1 = cube_array[i1].side_length;
+    double side_length2 = cube_array[i2].side_length;
+    return center1.minus(center2).magnitude() < (side_length1 + side_length2) * Math.sqrt(3) / 2; 
+  }
+
+  double[] elastic_results(double m1, double v1, double m2, double v2) {
+    double m_sum = m1 + m2;
+    double m_diff = m1 - m2;
+    double w1 = (m_diff * v1 + 2 * m2 * v2) / m_sum;
+    double w2 = (2 * m1 * v1 - m_diff * v2) / m_sum;
+    double[] out = {w1, w2};
+    return out;
+  }
+  
+  void elastic_rebound(int i1, int i2) {
+    double mass1 = Math.pow(cube_array[i1].side_length, 3);
+    Vector3d velocity1 = motion_state_array[i1].velocity;
+    double mass2 = Math.pow(cube_array[i2].side_length, 3);
+    Vector3d velocity2 = motion_state_array[i2].velocity;
+    
+    double x_results[] = elastic_results(mass1, velocity1.x, mass2, velocity2.x);
+    double y_results[] = elastic_results(mass1, velocity1.y, mass2, velocity2.y);
+    double z_results[] = elastic_results(mass1, velocity1.z, mass2, velocity2.z);
+    
+    motion_state_array[i1].velocity = new Vector3d(
+      x_results[0],
+      y_results[0],
+      z_results[0]
+    );
+    
+    motion_state_array[i2].velocity = new Vector3d(
+      x_results[1],
+      y_results[1],
+      z_results[1]
+    );
+  }
+
+  boolean check_and_handle_collision_to_cube(int i1, int i2) {
+    double side_length1 = cube_array[i1].side_length;
+    double side_length2 = cube_array[i2].side_length;
+    CubePosition position1 = motion_state_array[i1].position;
+    CubePosition position2 = motion_state_array[i2].position;
+    CubePosition position_diff = new CubePosition(
+      position2.center.minus(position1.center),
+      position2.ang_displacement.minus(position1.ang_displacement)
+    );
+    
+    Vector3d vertices[] = new Vector3d[8];
+      
+    int j = 0;
+    for (int x = -1; x <= 1; x += 2) {
+      for (int y = -1; y <= 1; y += 2) {
+        for (int z = -1; z <= 1; z += 2) {
+          vertices[j] = (new Vector3d(x, y, z)).multiply(side_length1 / 2);
+          ++j;
+        }
+      }
+    }
+    
+    AffineTransform affine = new AffineTransform(
+      get_rotation_matrix(position_diff.ang_displacement),
+      position_diff.center
+    );
+    
+    for (j = 0; j < 8; ++j) {
+      vertices[j] = do_affine(affine, vertices[j]);
+    }
+    
+    boolean has_been_collision = false;
+    for (j = 0; j < 8; ++j) {
+      Vector3d v = vertices[j];
+      double cube2_offset = side_length2 / 2;
+      if (Math.abs(v.x) + BUFFER < cube2_offset
+          && Math.abs(v.y) + BUFFER < cube2_offset
+          && Math.abs(v.z) + BUFFER < cube2_offset) {
+        has_been_collision = true;
+        break;
+      }
+    }
+    
+    if (has_been_collision) {
+      elastic_rebound(i1, i2);
+      return true;
+    }
+    else {
+      return false;
+    }
+  }
+  
+  void check_and_handle_collisions() {
+    HashMap<Integer, Integer> current_collisions = new HashMap<Integer, Integer>();
+    
+    for (int i = 0; i < cube_array.length; ++i) {
+      if (precheck_collision_with_ground(i)) {
+        check_and_handle_collision_with_ground(i);
+      }
+
+      int i1 = i;
+      for (int i2 = i + 1; i2 < cube_array.length; ++i2) {
+        if (prev_collisions.containsKey(cube_array.length * i1 + i2)) {
+          continue;
+        }
+        if (precheck_collision_of_cubes(i1, i2)) {
+          boolean collision_happened = false;
+          if (check_and_handle_collision_to_cube(i1, i2)) {
+            collision_happened = true;
+          }
+          else if (check_and_handle_collision_to_cube(i2, i1)) {
+            collision_happened = true;
+          }
+          if (collision_happened) {
+            current_collisions.put(cube_array.length * i1 + i2, 1);
+          }
+        }
+      }
+    }
+    
+    prev_collisions = current_collisions;
+  }
+  
+  void do_acceleration() {
+    for (int i = 0; i < cube_array.length; ++i) {
+      if (motion_state_array[i].stage == 0) {
+        motion_state_array[i].extra_data1 += friction;
+        double magnitude = motion_state_array[i].extra_data1;
+        double argument = motion_state_array[i].extra_data2;
+        motion_state_array[i].velocity.x = magnitude * Math.cos(argument);
+        motion_state_array[i].velocity.y = magnitude * Math.sin(argument);
+      }
+      if (motion_state_array[i].stage == 1) {
+        motion_state_array[i].velocity.z -= gravity * time_delta;
+      }
+    }
+  }
+  
+  double plan_cube_paths() {
+    initialize();
+    
+    time_elapsed = 0;
+    num_finished = 0;
+    prev_collisions = new HashMap<Integer, Integer>();
+    
+    while (num_finished < cube_array.length) {
+      record_waypoints();
+      manage_stages();
+      move_positions();
+      check_and_handle_collisions();
+      do_acceleration();
+      
+      time_elapsed += time_delta;
+    }
+    
+    double longest_time = 0;
+    
+    for (int i = 0; i < cube_array.length; ++i) {
+      if (path_array[i].get_total_time() > longest_time) {
+        longest_time = path_array[i].get_total_time();
+      }
+      
+      path_array[i].invert();
+      cube_array[i].set_path(path_array[i]);
+    }
+    
+    return longest_time;
+  }
+}
+
+Cube cubes[] = new Cube[3*3];
+Planner planner = new Planner(cubes);
 String bottom_label_text;
 
 final double cube_side_length = 60;
@@ -602,163 +941,6 @@ void init_cubes() {
 
 void init_bottom_label() {
   bottom_label_text = "Sum of all rolls: 9";
-}
-
-final double BUFFER = 0.001;
-final double gravity = 0.001;
-final double friction = 0.005;
-final double bounce_factor = 1.2;
-final UniformRandomGenerator gen_slide_time
-  = new UniformRandomGenerator(250, 500);
-final UniformRandomGenerator gen_vel_argument
-  = new UniformRandomGenerator(0, 2 * PI);
-final UniformRandomGenerator gen_upward_velocity
-  = new UniformRandomGenerator(0.2, 0.3);
-final UniformRandomGenerator gen_ang_vel_comp
-  = new UniformRandomGenerator(0, PI / 1000);
-
-double plan_cube_paths() {
-  CubeMotionState motion_state_array[] = new CubeMotionState[cubes.length];
-  CubePath path_array[] = new CubePath[cubes.length];
-  
-  for (int i = 0; i < cubes.length; ++i) {
-    Cube cube = cubes[i];
-    
-    path_array[i] = new CubePath();
-    path_array[i].add_waypoint(
-      new CubePosition(cube.get_base_position()),
-      0
-    );
-    
-    motion_state_array[i] = new CubeMotionState(
-      -1,
-      0,
-      new CubePosition(cube.get_base_position()),
-      new Vector3d(0, 0, 0),
-      new Vector3d(0, 0, 0),
-      0,
-      0
-    );
-  }
-  
-  final double time_delta = 10;
-  double time_elapsed = 0;
-  int num_finished = 0;
-  
-  while (num_finished < cubes.length) {
-    for (int i = 0; i < cubes.length; ++i) {
-      CubePosition position = new CubePosition(motion_state_array[i].position);
-      path_array[i].add_waypoint(
-        position,
-        time_elapsed
-      );
-    }
-    for (int i = 0; i < cubes.length; ++i) {
-      motion_state_array[i].time_until_next_stage -= time_delta;
-      if (motion_state_array[i].time_until_next_stage <= 0) {
-        ++motion_state_array[i].stage;
-        switch (motion_state_array[i].stage) {
-          case 0:
-            motion_state_array[i].time_until_next_stage = gen_slide_time.get_random_number();
-            double vel_argument = gen_vel_argument.get_random_number();
-            motion_state_array[i].velocity = new Vector3d(0, 0, 0);
-            motion_state_array[i].ang_velocity = new Vector3d(0, 0, 0);
-            motion_state_array[i].extra_data1 = 0;
-            motion_state_array[i].extra_data2 = vel_argument;
-            break;
-          case 1:
-            motion_state_array[i].time_until_next_stage = 3000;
-            double upward_velocity = gen_upward_velocity.get_random_number();
-            motion_state_array[i].velocity.z = upward_velocity;
-            double ang_vel_x = gen_ang_vel_comp.get_random_number();
-            double ang_vel_y = gen_ang_vel_comp.get_random_number();
-            double ang_vel_z = gen_ang_vel_comp.get_random_number();
-            motion_state_array[i].ang_velocity = new Vector3d(
-              ang_vel_x,
-              ang_vel_y,
-              ang_vel_z
-            );
-            break;
-          case 2:
-            ++num_finished;
-            break;
-        }
-      }
-    }
-    for (int i = 0; i < cubes.length; ++i) {
-      motion_state_array[i].position.center.update_by(
-        motion_state_array[i].velocity.multiply(
-          time_delta
-        )
-      );
-      motion_state_array[i].position.ang_displacement.update_by(
-        motion_state_array[i].ang_velocity.multiply(
-          time_delta
-        )
-      );
-    }
-    for (int i = 0; i < cubes.length; ++i) {
-      CubePosition position = motion_state_array[i].position;
-      double side_length = cubes[i].get_side_length();
-      
-      if (position.center.z + BUFFER <= side_length * (Math.sqrt(3) / 2)) {
-        Vector3d vertices[] = new Vector3d[8];
-        
-        int j = 0;
-        for (int x = -1; x <= 1; x += 2) {
-          for (int y = -1; y <= 1; y += 2) {
-            for (int z = -1; z <= 1; z += 2) {
-              vertices[j] = new Vector3d(x, y, z);
-              ++j;
-            }
-          }
-        }
-        
-        double minimum_z = 2;
-        for (int k = 0; k < 8; ++k) {
-          vertices[k].apply_matrix(get_rotation_matrix(position.ang_displacement));
-          if (vertices[k].z < minimum_z) {
-            minimum_z = vertices[k].z;
-          }
-        }
-        
-        minimum_z *= side_length / 2;
-        
-        if (position.center.z + minimum_z + BUFFER < 0) {
-          position.center.z = -minimum_z;
-          if (motion_state_array[i].velocity.z < 0) {
-            motion_state_array[i].velocity.z *= -bounce_factor;
-          }
-        }
-      }
-    }
-    for (int i = 0; i < cubes.length; ++i) {
-      if (motion_state_array[i].stage == 0) {
-        motion_state_array[i].extra_data1 += friction;
-        double magnitude = motion_state_array[i].extra_data1;
-        double argument = motion_state_array[i].extra_data2;
-        motion_state_array[i].velocity.x = magnitude * Math.cos(argument);
-        motion_state_array[i].velocity.y = magnitude * Math.sin(argument);
-      }
-      if (motion_state_array[i].stage == 1) {
-        motion_state_array[i].velocity.z -= gravity * time_delta;
-      }
-    }
-    time_elapsed += time_delta;
-  }
-  
-  double longest_time = 0;
-  
-  for (int i = 0; i < cubes.length; ++i) {
-    if (path_array[i].get_total_time() > longest_time) {
-      longest_time = path_array[i].get_total_time();
-    }
-    
-    path_array[i].invert();
-    cubes[i].set_path(path_array[i]);
-  }
-  
-  return longest_time;
 }
 
 void reset_cubes() {
@@ -892,7 +1074,7 @@ void mousePressed() {
     roll_cubes();
     change_bottom_label_text();
     reset_cubes();
-    time_until_label_show = plan_cube_paths();
+    time_until_label_show = planner.plan_cube_paths();
   }
   
   suspend_draw = false;
