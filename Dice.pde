@@ -855,12 +855,19 @@ class Planner {
       position2.ang_displacement.minus(position1.ang_displacement)
     );
     
-    Vector3d vertices[] = new Vector3d[64];
+    Vector3d vertices[] = new Vector3d[26];
       
     int j = 0;
-    for (double x = -1; x <= 1 + BUFFER; x += 2.0/3) {
-      for (double y = -1; y <= 1 + BUFFER; y += 2.0/3) {
-        for (double z = -1; z <= 1 + BUFFER; z += 2.0/3) {
+    for (double x = -1; x <= 1 + BUFFER; x += 1.0) {
+      for (double y = -1; y <= 1 + BUFFER; y += 1.0) {
+        double z_inc = 0;
+        if (Math.abs(x) >= 1 || Math.abs(y) >= 1) {
+          z_inc = 1;
+        }
+        else {
+          z_inc = 2;
+        }
+        for (double z = -1; z <= 1 + BUFFER; z += z_inc) {
           vertices[j] = (new Vector3d(x, y, z)).multiply(side_length2 / 2);
           ++j;
         }
@@ -885,6 +892,8 @@ class Planner {
     }
     
     boolean has_been_collision = false;
+    Vector3d separate_translate = new Vector3d(0, 0, 0);
+    
     for (j = 0; j < vertices.length; ++j) {
       Vector3d v = vertices[j];
       double cube2_offset = side_length1 / 2;
@@ -892,12 +901,28 @@ class Planner {
           && Math.abs(v.y) + BUFFER < cube2_offset
           && Math.abs(v.z) + BUFFER < cube2_offset) {
         has_been_collision = true;
+        
+        double x_ratio = Math.abs(cube2_offset / v.x);
+        double y_ratio = Math.abs(cube2_offset / v.y);
+        double z_ratio = Math.abs(cube2_offset / v.z);
+        
+        double factor = Math.min(x_ratio, Math.min(y_ratio, z_ratio));
+        
+        separate_translate = v.multiply(factor - 1);
+        
         break;
       }
     }
     
     if (has_been_collision) {
       if (!prev_collisions.containsKey(cube_array.length * i1 + i2)) {
+        separate_translate.apply_matrix(
+          get_rotation_matrix(position1.ang_displacement)
+        );
+
+        position2.center.update_by(separate_translate.multiply(0.5));
+        position1.center.update_by(separate_translate.multiply(-0.5));
+        
         elastic_rebound(i1, i2);
       }
       return true;
